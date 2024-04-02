@@ -9,6 +9,54 @@ from geopy.geocoders import Nominatim
 import geopy.exc
 from unidecode import unidecode
 import re
+import openai
+
+openai.api_key = ""
+
+def generate_tags(title, description):
+    prompt = (
+        f"Generate tags related to the event \"{title}\". "
+        "These tags must be short, one-word keywords that accurately represent the essence of the event. "
+        "Please provide keywords that are directly related to the event title and description, and can be used as tags. "
+        "Here's a brief description of the event:\n"
+        f"{description}\n\n"
+        "Separate each tag with a comma and ensure that each tag is unique.\n"
+        "Avoid including irrelevant information or instructions in the tags. "
+        "Focus solely on keywords that describe the event."
+        "Separate each tag with a comma and ensure that each tag is unique.\n"
+        "Tags:\n"
+        "   \"Canada Events\",\n"
+        "   \"Quebec Events\",\n"
+        "   \"Things to do in Montreal, Canada\",\n"
+        "   \"Montreal Conferences\",\n"
+        "   \"Montreal Other Conferences\",\n"
+        "   \"diversity\",\n"
+        "   \"futureofwork\",\n"
+        "   \"conference\",\n"
+        "   \"academic\",\n"
+        "   \"futureskills\",\n"
+        "   \"wil\",\n"
+        "   \"future_of_work\",\n"
+        "   \"futureworkforce\",\n"
+        "   \"human_resources\",\n"
+        "   \"experiential_learning\"\n"
+    )
+
+    response = openai.Completion.create(
+        engine="davinci-002",
+        prompt=prompt,
+        max_tokens=50,  # Defina o número máximo de tokens de acordo com suas necessidades
+        n=1,
+        stop=None
+    )
+
+    # Extrair as tags e formatá-las corretamente
+    tags = response.choices[0].text.strip().split(",")
+    formatted_tags = [tag.strip() for tag in tags]
+    unique_tags = list(set(formatted_tags))  # Remover tags duplicadas
+    return unique_tags
+
+
 
 def scroll_to_bottom(driver, max_clicks=5):
     for _ in range(max_clicks):
@@ -37,6 +85,13 @@ def format_date(date_str, source):
         return None
 
 def format_location(location_str, source):
+    if location_str is None:
+        return {
+            'Location': None,
+            'City': None,
+            'CountryCode': None
+        }
+
     if source == 'Facebook' or source == 'Eventbrite':
         return {
             'Location': location_str.strip(),
@@ -71,6 +126,7 @@ def format_location(location_str, source):
             'City': 'Montreal',
             'CountryCode': 'ca'
         }
+
 
 def extract_start_end_time(date_str):
     if date_str is None:
@@ -159,6 +215,9 @@ def get_coordinates(location):
     retries = 3
     delay = 2
 
+    if location is None:
+        return None, None
+
     location = unidecode(location)
 
     for _ in range(retries):
@@ -174,6 +233,7 @@ def get_coordinates(location):
             time.sleep(delay)
 
     return None, None
+
 
 def open_google_maps(latitude, longitude):
     google_maps_url = f"https://www.google.com/maps/search/?api=1&query={latitude},{longitude}"
@@ -227,20 +287,11 @@ def scrape_eventbrite_events(driver, url, selectors, max_pages=40):
             location_element = event_page.find('p', class_='location-info__address-text')
             location = location_element.text.strip() if location_element else None
             ImageURL = get_previous_page_image_url(driver)
+            tags = generate_tags(title, description)
 
             # Obtenha as coordenadas de latitude e longitude
             latitude, longitude = get_coordinates(location)
 
-            tags_elements = event_page.find_all('li', class_='tags-item inline')
-
-            tags = []
-            for tag_element in tags_elements:
-                tag_link = tag_element.find('a')
-                if tag_link:
-                    tag_text = tag_link.text.strip().replace("#", "")  # Remove o caractere "#" do início do texto
-                    tags.append(tag_text)
-
-            event_info['Tags'] = tags
 
             organizer = event_page.find('a', class_='descriptive-organizer-info__name-link') if event_page.find('a', class_='descriptive-organizer-info__name-link') else None
             image_url_organizer = event_page.find('svg', class_='eds-avatar__background eds-avatar__background--has-border')
@@ -262,7 +313,7 @@ def scrape_eventbrite_events(driver, url, selectors, max_pages=40):
             event_info['ImageURL'] = ImageURL
             event_info['Latitude'] = latitude  # Adiciona latitude
             event_info['Longitude'] = longitude  # Adiciona longitude
-            event_info['Tags'] = tags
+            event_info['GPTtags'] = tags
             event_info['Organizer'] = organizer.text.strip() if organizer else None
             event_info['EventUrl'] = event_link  # Adiciona o EventUrl ao dicionário
 
@@ -296,7 +347,7 @@ def main():
                 'Location': {'tag': 'p', 'class': 'location-info__address-text'},
                 'Price': {'tag': 'p', 'class': 'event-card__price'},
                 'ImageURL': {'tag': 'img', 'class': 'event-card__image'},
-                'Tags': {'tag': 'ul', 'class': 'event-card__tags'},
+                # 'Tags': {'tag': 'ul', 'class': 'event-card__tags'},
                 'Organizer': {'tag': 'a', 'class': 'event-card__organizer'},
                 'Organizer_IMG': {'tag': 'svg', 'class': 'eds-avatar__background eds-avatar__background--has-border'}
             },
